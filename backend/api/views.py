@@ -5,8 +5,8 @@ from rest_framework import generics, mixins, authentication, permissions, status
 from rest_framework.settings import api_settings
 from rest_framework.views import APIView
 from django.conf import settings
-from .serializer import UserSerializer, OfferSerializer, AuthTokenSerializer, TransactionSerializer
-from .models import User, UserManager, Offer, Transaction
+from .serializer import UserSerializer, OfferSerializer, AuthTokenSerializer, TransactionSerializer, RequestSerializer
+from .models import User, UserManager, Offer, Transaction, Request
 from rest_framework.viewsets import ModelViewSet, ViewSet
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
@@ -83,6 +83,8 @@ class OfferView(ModelViewSet):
         u_id = kwargs['pk']
         try:
             offer_id = request.GET.get("offer_id")
+            if not offer_id:
+                offer_id = request.data["offer_id"]
             session = Offer.objects.get(auto_id=offer_id)
             serializer = OfferSerializer(session)
             return Response(serializer.data)
@@ -99,34 +101,51 @@ class OfferView(ModelViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
 
-
 class TransactionView(ModelViewSet):
     queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
 
     def retrieve(self, request, *args, **kwargs):
         t_id = kwargs['pk']
+        u_id = kwargs['pk']
+        # try:
+        #     transaction_s = Transaction.objects.filter(sender=t_id)
+        #     transaction_r = Transaction.objects.filter(receiver_id=t_id)
+        #     transaction = list(chain(transaction_s, transaction_r))
+        #     serializer = TransactionSerializer(transaction, many=True)
+        #     return Response(serializer.data)
+        # except Transaction.DoesNotExist:
+        #     return Response(status=status.HTTP_404_NOT_FOUND)
+
         try:
-            transaction_s = Transaction.objects.filter(sender=t_id)
-            transaction_r = Transaction.objects.filter(receiver_id=t_id)
-            transaction = list(chain(transaction_s, transaction_r))
-            serializer = TransactionSerializer(transaction, many=True)
+            offer_id = request.GET.get("tr_id")
+            if not offer_id:
+                offer_id = request.data["tr_id"]
+            print(offer_id)
+            session = Transaction.objects.filter(id=offer_id)
+            serializer = TransactionSerializer(session, many=True)
+            return Response(serializer.data)
+        except KeyError:
+            pass
+        except Transaction.DoesNotExist:
+            pass
+
+        try:
+            session = Transaction.objects.filter(sender_id=u_id)
+            serializer = TransactionSerializer(session, many=True)
             return Response(serializer.data)
         except Transaction.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
     def destroy(self, request, *args, **kwargs):
-        user_id = kwargs['pk']
+        _id = kwargs['pk']
 
         try:
-            transaction = Transaction.objects.filter(user=user_id)
+            transaction = Transaction.objects.filter(id=_id)
             self.perform_destroy(transaction)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Transaction.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
-
-    def update(self, request, *args, **kwargs):
-        print(request.user)
 
 
 class GoogleView(ViewSet):
@@ -151,3 +170,27 @@ class GoogleView(ViewSet):
             print(err)
             content = {'message': 'Invalid token'}
             return Response(content)
+
+
+class RequestView(ModelViewSet):
+    queryset = Request.objects.all()
+    serializer_class = RequestSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        t_id = kwargs['pk']
+        try:
+            transaction_s = Request.objects.filter(sender=t_id)
+            transaction_r = Request.objects.filter(receiver_id=t_id)
+            transaction = list(chain(transaction_s, transaction_r))
+            serializer = RequestSerializer(transaction, many=True)
+            return Response(serializer.data)
+        except Transaction.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+    def destroy(self, request, *args, **kwargs):
+        t_id = kwargs['pk']
+        rq = Request.objects.get(id=t_id)
+
+        rq.offer.amount += rq.amount
+        rq.offer.save()
+        return super().destroy(request, args, kwargs)

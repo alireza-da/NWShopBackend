@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, get_user_model
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers, status
-from .models import UserManager, User, Offer, Transaction
+from .models import UserManager, User, Offer, Transaction, Request
 from .auth_backend import PasswordLessAuthBackend
 from rest_framework.response import Response
 
@@ -34,7 +34,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['email', 'password', 'id', 'is_oauth', 'province', 'city', 'phone', 'fullname', 'admin', 'staff',
                   'iban_id', 'credit_id', 'id_card', 'ref_id', 'ref_used',
-                  'money_balance', 'ref_used_id', 'points', 'sold_coins']
+                  'money_balance', 'ref_used_id', 'points', 'sold_coins', 'money_balance']
 
     def create(self, validated_data):
         is_oauth = validated_data['is_oauth']
@@ -64,7 +64,7 @@ class UserSerializer(serializers.ModelSerializer):
                                   f"{''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(4))}"
                     user.save()
                     referred_user = User.objects.get(ref_id=referral)
-                    referred_user.points += 10
+                    # referred_user.points += 10
                     referred_user.save()
                     return user
                 else:
@@ -77,7 +77,7 @@ class UserSerializer(serializers.ModelSerializer):
                     user.set_password(password)
                     user.save()
                     referred_user = User.objects.get(ref_id=referral)
-                    referred_user.points += 10
+                    # referred_user.points += 10
                     referred_user.save()
                     return user
             else:
@@ -178,24 +178,43 @@ class AuthTokenSerializer(serializers.Serializer):
 class OfferSerializer(serializers.ModelSerializer):
     class Meta:
         model = Offer
-        fields = ['auto_id', 'user', 'price', 'date', 'amount']
+        fields = ['auto_id', 'user', 'price', 'date', 'amount', 'server']
 
     def create(self, validated_data):
         user = validated_data['user']
         price = validated_data['price']
         date = validated_data['date']
         amount = validated_data['amount']
-        offer = Offer.objects.create(user=user, price=price, date=date, amount=amount)
+        server = validated_data['server']
+        offer = Offer.objects.create(user=user, price=price, date=date, amount=amount, server=server)
         offer.save()
         return offer
 
 
 class TransactionSerializer(serializers.ModelSerializer):
     date = serializers.DateField(read_only=True)
-    confirmed = serializers.BooleanField(default=False)
+    status = serializers.CharField(default="Pending")
 
     class Meta:
         model = Transaction
+        fields = ['id', 'sender', 'receiver', 'amount', 'date', 'status']
+
+    def create(self, validated_data):
+        sender = validated_data['sender']
+        receiver = validated_data['receiver']
+        # offer = validated_data['offer']
+        amount = validated_data['amount']
+        if 0 < int(amount) <= sender.money_balance :
+            tr = Transaction.objects.create(sender=sender, receiver=receiver, amount=amount)
+            tr.save()
+            return tr
+        else:
+            return Response(status=status.HTTP_403_FORBIDDEN, data="Not enough money balance")
+
+
+class RequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Request
         fields = ['id', 'sender', 'receiver', 'offer', 'amount', 'date', 'confirmed']
 
     def create(self, validated_data):
@@ -210,15 +229,39 @@ class TransactionSerializer(serializers.ModelSerializer):
             offer.amount -= amount
             offer.save()
 
-            transaction = Transaction.objects.create(sender=sender, receiver=receiver, offer=offer, amount=amount)
+            transaction = Request.objects.create(sender=sender, receiver=receiver, offer=offer, amount=amount)
             transaction.save()
-            if offer.amount == 0:
-                offer.delete()
+            # if offer.amount == 0:
+            #     offer.delete()
 
-            receiver.sold_coins += amount
+            # receiver.sold_coins += amount
             receiver.save()
 
             return transaction
         except Offer.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND, data="Offer Does Not Exist")
+
+    def update(self, instance, validated_data):
+        sender = validated_data['sender']
+        receiver = validated_data['receiver']
+        offer = validated_data['offer']
+        amount = int(validated_data['amount'])
+        confirmed = validated_data['confirmed']
+        if confirmed:
+            sender.sold_coins += amount
+            sender.points = sender.sold_coins/100000
+            if sender.sold_coins / 1000 > 0:
+                try:
+                    referral_user = User.objects.get(ref_id=sender.ref_used_id)
+                    referral_user.money_balance += 50 * (sender.sold_coins / 1000)
+                    referral_user.save()
+                    print(referral_user)
+                except User.DoesNotExist:
+                    print(f"Couldn't find referral {sender.ref_used_id}")
+
+            sender.money_balance += (amount / 1000) * offer.price
+            sender.save()
+            req = super().update(instance, validated_data)
+            return req
+
 

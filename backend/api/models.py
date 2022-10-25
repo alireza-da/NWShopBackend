@@ -75,6 +75,7 @@ class User(AbstractBaseUser):
     ref_used_id = models.CharField(max_length=255, default="")
     sold_coins = models.IntegerField(default=0)
     points = models.IntegerField(default=0)
+    money_balance = models.IntegerField(default=0)
 
     objects = UserManager()
     # notice the absence of a "Password field", that is built in.
@@ -134,6 +135,7 @@ class Offer(models.Model):
     price = models.IntegerField(default=0)
     date = models.DateField(default=datetime.date.today)
     amount = models.IntegerField(default=0)
+    server = models.CharField(default="", max_length=255)
 
     def __str__(self):
         return f"offer{self.auto_id}-u{self.user.id}"
@@ -142,7 +144,18 @@ class Offer(models.Model):
 class Transaction(models.Model):
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tr_sender')
     receiver = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tr_receiver')
-    offer = models.ForeignKey(Offer, on_delete=models.CASCADE, related_name='tr_offer')
+    amount = models.IntegerField(default=0)
+    date = models.DateField(default=datetime.date.today)
+    status = models.CharField(default="Pending", max_length=255)
+
+    def __str__(self):
+        return f"tr{self.id}-s{self.sender.id}-r{self.receiver.id}"
+
+
+class Request(models.Model):
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='rq_sender')
+    receiver = models.ForeignKey(User, on_delete=models.CASCADE, related_name='rq_receiver')
+    offer = models.ForeignKey(Offer, on_delete=models.CASCADE, related_name='rq_offer')
     amount = models.IntegerField(default=0)
     date = models.DateField(default=datetime.date.today)
     confirmed = models.BooleanField(default=False)
@@ -155,3 +168,7 @@ class Ticket(models.Model):
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sender')
     message = models.TextField()
     subject = models.CharField(max_length=300)
+
+# class Chat(models.Model):
+#     parti1 = models.ForeignKey(User, models.CASCADE)
+#     part2 = models.ForeignKey(User, models.CASCADE)
